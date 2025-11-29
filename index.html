@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Tea Processing — Local Save + Export (Option C)</title>
+<title>Tea Processing — Firestore Save + GitHub Pages</title>
 <style>
   :root{--accent:#286ef0;--muted:#6c757d}
   body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width:1100px; margin:20px auto; padding:18px; color:#111}
@@ -32,8 +32,8 @@
 </head>
 <body>
 
-<h1>Tea Processing — Local Save & Export (Detailed Word)</h1>
-<p class="note">This page stores records in your browser memory (no server). Click <strong>Save Record</strong> to keep a record in the list — the <strong>latest saved</strong> record is used by Export CSV / Export Word buttons.</p>
+<h1>Tea Processing — Save to Firestore & Export</h1>
+<p class="note">This page saves records to Cloud Firestore (online). Use <strong>Save Record</strong> to store a record; the latest saved record is used by Export CSV / Export Word buttons.</p>
 
 <form id="entryForm" onsubmit="return false;">
   <div>
@@ -173,351 +173,350 @@
   </div>
 
   <div class="controls full">
-    <button id="saveBtn" type="button">Save Record</button>
+    <button id="saveBtn" type="button">Save Record (online)</button>
+    <button id="fetchLatestBtn" type="button" class="secondary">Fetch Latest Record</button>
     <button id="exportCSVBtn" type="button" class="secondary">Export CSV (latest)</button>
     <button id="exportWordBtn" type="button" class="secondary">Export Word (latest)</button>
-    <button id="clearAllBtn" type="button" class="secondary">Clear All Saved Records</button>
+    <button id="clearUIBtn" type="button" class="secondary">Clear Form</button>
   </div>
 </form>
 
 <hr>
 
-<h2>Saved Records (local)</h2>
-<div id="recordsList"><em>No records yet. Save a record to view here.</em></div>
+<h2>Latest Saved Record (from Firestore)</h2>
+<div id="recordsList"><em>Not loaded yet.</em></div>
 
-<script>
-/* ------------------------
-   Utility & state
-   ------------------------ */
-const records = [];             // saved records array
-let lastSavedRecord = null;     // pointer to latest saved (used for export)
+<!-- Firebase modular SDK (CDN) -->
+<script type="module">
+  // --- 1) Replace the config object below with your Firebase web app config ----
+  // Get this from Firebase Console > Project settings > Your apps (Web)
+  const firebaseConfig = {
+    /* FIREBASE CONFIG HERE
+       Example:
+       apiKey: "xxx",
+       authDomain: "project-id.firebaseapp.com",
+       projectId: "project-id",
+       storageBucket: "project-id.appspot.com",
+       messagingSenderId: "1234567890",
+       appId: "1:123:web:abcd",
+    */
+  };
 
-const $ = sel => document.querySelector(sel);
+  // --- 2) Import modular SDK from CDN ---
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+  import {
+    getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp
+  } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
 
-/* Populate troughRPM (100..1400 step 100) */
-const troughRPM = $('#troughRPM');
-for (let i = 100; i <= 1400; i += 100) troughRPM.add(new Option(i, i));
+  // Initialize Firebase & Firestore
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const recordsCol = collection(db, 'tea_records');
 
-/* Withering entries UI */
-const witheringContainer = $('#witheringContainer');
-let witheringIndex = 0;
+  // --- UI helpers & form logic (almost same as your original) ---
+  const recordsList = document.getElementById('recordsList');
+  const witheringContainer = document.getElementById('witheringContainer');
+  const troughRPM = document.getElementById('troughRPM');
+  for (let i = 100; i <= 1400; i += 100) troughRPM.add(new Option(i, i));
+  let witheringIndex = 0;
 
-function createWitheringEntry(idx){
-  const d = document.createElement('div');
-  d.className = 'withering-entry';
-  d.dataset.idx = idx;
-  d.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <strong>Withering Entry ${idx}</strong>
-      <button class="deleteBtn" type="button">Delete</button>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
-      <div>
-        <label>Start Date & Time</label>
-        <input type="datetime-local" class="w-start">
+  function createWitheringEntry(idx){
+    const d = document.createElement('div');
+    d.className = 'withering-entry';
+    d.dataset.idx = idx;
+    d.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong>Withering Entry ${idx}</strong>
+        <button class="deleteBtn" type="button">Delete</button>
       </div>
-      <div>
-        <label>Start Trough</label>
-        <select class="w-trough"></select>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+        <div>
+          <label>Start Date & Time</label>
+          <input type="datetime-local" class="w-start">
+        </div>
+        <div>
+          <label>Start Trough</label>
+          <select class="w-trough"></select>
+        </div>
+        <div>
+          <label>End Date & Time</label>
+          <input type="datetime-local" class="w-end">
+        </div>
+        <div>
+          <label>Total Hours (auto)</label>
+          <input type="text" class="w-total" readonly>
+        </div>
       </div>
-      <div>
-        <label>End Date & Time</label>
-        <input type="datetime-local" class="w-end">
-      </div>
-      <div>
-        <label>Total Hours (auto)</label>
-        <input type="text" class="w-total" readonly>
-      </div>
-    </div>
-  `;
-  // populate trough 1..24
-  const sel = d.querySelector('.w-trough');
-  for (let t = 1; t <= 24; t++) sel.add(new Option(t, t));
-  // delete handler
-  d.querySelector('.deleteBtn').addEventListener('click', ()=> d.remove());
-  // calc hours when start/end change
-  const startInput = d.querySelector('.w-start');
-  const endInput = d.querySelector('.w-end');
-  const totalInput = d.querySelector('.w-total');
-  function calcHours(){
-    const s = startInput.value, e = endInput.value;
-    if(!s || !e){ totalInput.value = ''; return; }
-    const diff = (new Date(e) - new Date(s)) / (1000*60*60);
-    totalInput.value = isFinite(diff) ? (diff >= 0 ? diff.toFixed(2) : 'Invalid') : '';
-  }
-  startInput.addEventListener('change', calcHours);
-  endInput.addEventListener('change', calcHours);
-  return d;
-}
+    `;
+    const sel = d.querySelector('.w-trough');
+    for (let t = 1; t <= 24; t++) sel.add(new Option(t, t));
+    d.querySelector('.deleteBtn').addEventListener('click', ()=> d.remove());
 
-$('#addWitheringBtn').addEventListener('click', ()=>{
-  witheringIndex++;
-  witheringContainer.appendChild(createWitheringEntry(witheringIndex));
-});
-
-$('#clearWitheringBtn').addEventListener('click', ()=> {
-  if(!confirm('Clear all withering entries?')) return;
-  witheringContainer.innerHTML = '';
-  witheringIndex = 0;
-});
-
-/* Build a record object from form */
-function buildRecordObject(){
-  // fermentation HH:MM -> minutes
-  const ft = $('#fermentationTime').value;
-  let fermentationMinutes = '';
-  if(ft){
-    const pieces = ft.split(':').map(x=>Number(x||0));
-    fermentationMinutes = pieces[0]*60 + pieces[1];
+    const startInput = d.querySelector('.w-start');
+    const endInput = d.querySelector('.w-end');
+    const totalInput = d.querySelector('.w-total');
+    function calcHours(){
+      const s = startInput.value, e = endInput.value;
+      if(!s || !e){ totalInput.value = ''; return; }
+      const diff = (new Date(e) - new Date(s)) / (1000*60*60);
+      totalInput.value = isFinite(diff) ? (diff >= 0 ? diff.toFixed(2) : 'Invalid') : '';
+    }
+    startInput.addEventListener('change', calcHours);
+    endInput.addEventListener('change', calcHours);
+    return d;
   }
 
-  // gather withering entries
-  const wdivs = witheringContainer.querySelectorAll('.withering-entry');
-  const withering = [];
-  wdivs.forEach(div=>{
-    withering.push({
-      start: div.querySelector('.w-start').value || '',
-      startTrough: div.querySelector('.w-trough').value || '',
-      end: div.querySelector('.w-end').value || '',
-      hours: div.querySelector('.w-total').value || ''
-    });
+  document.getElementById('addWitheringBtn').addEventListener('click', ()=>{
+    witheringIndex++;
+    witheringContainer.appendChild(createWitheringEntry(witheringIndex));
   });
 
-  // assemble
-  const rec = {
-    mainPluckingDate: ($('#pluckingDate').value || '').toString(),
-    greenLeafFrom: ($('#greenLeafFrom').value || '').toString(),
-    withering,
-    manufactureStart: ($('#manufactureStart').value || '').toString(),
-    gl: ($('#gl').value || '').toString(),
-    wl: ($('#wl').value || '').toString(),
-    wlPercent: ($('#wlPercent').value || '').toString(),
-    mt: ($('#mt').value || '').toString(),
-    ot: ($('#ot').value || '').toString(),
-    troughNos: ($('#troughNos').value || '').toString(),
-    troughRPM: ($('#troughRPM').value || '').toString(),
-    rollerRPM: ($('#rollerRPM').value || '').toString(),
-    rollTime: ($('#rollTime').value || '').toString(),
-    rollerNo: ($('#rollerNo').value || '').toString(),
-    fermentationTimeMinutes: fermentationMinutes,
-    fermentationType: ($('#fermentationType').value || '').toString(),
-    dryerStart: ($('#dryerStart').value || '').toString(),
-    dryerCircuit: ($('#dryerCircuit').value || '').toString(),
-    dryerName: ($('#dryerName').value || '').toString(),
-    inletTemp: ($('#inletTemp').value || '').toString(),
-    exhaustTemp: ($('#exhaustTemp').value || '').toString(),
-    mouthTemp: ($('#mouthTemp').value || '').toString(),
-    firingStart: ($('#firingStart').value || '').toString(),
-    firingEnd: ($('#firingEnd').value || '').toString(),
-    notes: ($('#notes').value || '').toString(),
-    createdAt: new Date().toISOString()
-  };
-  return rec;
-}
+  document.getElementById('clearWitheringBtn').addEventListener('click', ()=>{
+    if(!confirm('Clear all withering entries?')) return;
+    witheringContainer.innerHTML = '';
+    witheringIndex = 0;
+  });
 
-/* Save record locally (in-memory) */
-$('#saveBtn').addEventListener('click', ()=>{
-  try {
+  function buildRecordObject(){
+    const ft = document.getElementById('fermentationTime').value;
+    let fermentationMinutes = '';
+    if(ft){
+      const pieces = ft.split(':').map(x=>Number(x||0));
+      fermentationMinutes = pieces[0]*60 + pieces[1];
+    }
+    const wdivs = witheringContainer.querySelectorAll('.withering-entry');
+    const withering = [];
+    wdivs.forEach(div=>{
+      withering.push({
+        start: div.querySelector('.w-start').value || '',
+        startTrough: div.querySelector('.w-trough').value || '',
+        end: div.querySelector('.w-end').value || '',
+        hours: div.querySelector('.w-total').value || ''
+      });
+    });
+
+    const rec = {
+      mainPluckingDate: (document.getElementById('pluckingDate').value || '').toString(),
+      greenLeafFrom: (document.getElementById('greenLeafFrom').value || '').toString(),
+      withering,
+      manufactureStart: (document.getElementById('manufactureStart').value || '').toString(),
+      gl: (document.getElementById('gl').value || '').toString(),
+      wl: (document.getElementById('wl').value || '').toString(),
+      wlPercent: (document.getElementById('wlPercent').value || '').toString(),
+      mt: (document.getElementById('mt').value || '').toString(),
+      ot: (document.getElementById('ot').value || '').toString(),
+      troughNos: (document.getElementById('troughNos').value || '').toString(),
+      troughRPM: (document.getElementById('troughRPM').value || '').toString(),
+      rollerRPM: (document.getElementById('rollerRPM').value || '').toString(),
+      rollTime: (document.getElementById('rollTime').value || '').toString(),
+      rollerNo: (document.getElementById('rollerNo').value || '').toString(),
+      fermentationTimeMinutes: fermentationMinutes,
+      fermentationType: (document.getElementById('fermentationType').value || '').toString(),
+      dryerStart: (document.getElementById('dryerStart').value || '').toString(),
+      dryerCircuit: (document.getElementById('dryerCircuit').value || '').toString(),
+      dryerName: (document.getElementById('dryerName').value || '').toString(),
+      inletTemp: (document.getElementById('inletTemp').value || '').toString(),
+      exhaustTemp: (document.getElementById('exhaustTemp').value || '').toString(),
+      mouthTemp: (document.getElementById('mouthTemp').value || '').toString(),
+      firingStart: (document.getElementById('firingStart').value || '').toString(),
+      firingEnd: (document.getElementById('firingEnd').value || '').toString(),
+      notes: (document.getElementById('notes').value || '').toString(),
+      createdAt: serverTimestamp()
+    };
+    return rec;
+  }
+
+  // Save to Firestore
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
     const rec = buildRecordObject();
     if(!rec.mainPluckingDate){
       alert('Please provide Main plucking date (required).'); return;
     }
-    // push and set lastSavedRecord
-    records.push(rec);
-    lastSavedRecord = rec;
-    renderRecords();
-    // reset form
-    document.getElementById('entryForm').reset();
-    witheringContainer.innerHTML = '';
-    witheringIndex = 0;
-    alert('Record saved locally. You can now export the latest record.');
-  } catch(e){
-    console.error(e); alert('Save failed: '+e.message);
-  }
-});
+    try {
+      const docRef = await addDoc(recordsCol, rec);
+      alert('Record saved online. ID: ' + docRef.id);
+      // show latest
+      await fetchLatestRecord();
+      // clear form
+      document.getElementById('entryForm').reset();
+      witheringContainer.innerHTML = '';
+      witheringIndex = 0;
+    } catch (err) {
+      console.error(err);
+      alert('Save failed: ' + (err.message || err));
+    }
+  });
 
-/* Render saved records list */
-function renderRecords(){
-  const container = $('#recordsList');
-  container.innerHTML = '';
-  if(records.length === 0){ container.innerHTML = '<em>No records yet. Save a record to view here.</em>'; return; }
-  records.slice().reverse().forEach((r, idx) => {
-    const i = records.length - idx; // show 1..N latest first
-    const div = document.createElement('div');
-    div.className = 'record';
-    const withCount = (r.withering && r.withering.length) ? r.withering.length : 0;
-    div.innerHTML = `
-      <strong>Record ${i} — ${escapeHtml(r.mainPluckingDate)}</strong>
+  // Fetch latest (by createdAt timestamp) and render
+  async function fetchLatestRecord(){
+    recordsList.innerHTML = '<em>Loading latest record…</em>';
+    try {
+      const q = query(recordsCol, orderBy('createdAt', 'desc'), limit(1));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        recordsList.innerHTML = '<em>No records found in Firestore.</em>';
+        return;
+      }
+      const doc = snap.docs[0];
+      const r = doc.data();
+      // createdAt might be a Firestore timestamp; display safely
+      const createdAt = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate().toLocaleString() : (r.createdAt || '');
+      let html = `<div class="record"><strong>Latest — ${escapeHtml(r.mainPluckingDate || 'no-date')}</strong>
       <div style="margin-top:8px">
         <table class="summary">
           <tr><th>Main plucking date</th><td>${escapeHtml(r.mainPluckingDate)}</td></tr>
           <tr><th>Green leaf from</th><td>${escapeHtml(r.greenLeafFrom)}</td></tr>
-          <tr><th>Withering entries</th><td>${withCount} entries</td></tr>
+          <tr><th>Withering entries</th><td>${r.withering ? r.withering.length + ' entries' : 0}</td></tr>
           <tr><th>Manufacture start</th><td>${escapeHtml(r.manufactureStart)}</td></tr>
           <tr><th>GL / WL / WL%</th><td>${escapeHtml(r.gl)} / ${escapeHtml(r.wl)} / ${escapeHtml(r.wlPercent)}</td></tr>
           <tr><th>Made Tea (MT) / Outturn (OT)</th><td>${escapeHtml(r.mt)} / ${escapeHtml(r.ot)}</td></tr>
           <tr><th>Notes</th><td>${escapeHtml(r.notes)}</td></tr>
+          <tr><th>Saved at</th><td>${escapeHtml(createdAt)}</td></tr>
         </table>
-      </div>
-    `;
-    container.appendChild(div);
-  });
-}
-
-/* Clear all saved records */
-$('#clearAllBtn').addEventListener('click', ()=>{
-  if(!confirm('Clear all locally saved records?')) return;
-  records.length = 0; lastSavedRecord = null;
-  renderRecords();
-});
-
-/* CSV Export (latest saved record) */
-$('#exportCSVBtn').addEventListener('click', ()=>{
-  if(!lastSavedRecord){ alert('No saved record available. Save a record first.'); return; }
-  const r = lastSavedRecord;
-  // header
-  const header = [
-    "MainPluckingDate","GreenLeafFrom","WitheringEntries",
-    "ManufactureStart","GL","WL","WL%","MadeTea_MT","Outturn_OT",
-    "TroughNos","TroughRPM","RollerRPM","RollTime","RollerNo",
-    "FermentationMinutes","FermentationType",
-    "DryerStart","DryerCircuit","DryerName","InletTemp","ExhaustTemp","MouthTemp",
-    "FiringStart","FiringEnd","Notes","CreatedAt"
-  ];
-  const withString = (r.withering && r.withering.length) 
-    ? r.withering.map((w,i)=>`#${i+1}|S:${w.start||''}|T:${w.startTrough||''}|E:${w.end||''}|H:${w.hours||''}`).join(' ; ')
-    : '';
-  const row = [
-    r.mainPluckingDate, r.greenLeafFrom, withString,
-    r.manufactureStart, r.gl, r.wl, r.wlPercent, r.mt, r.ot,
-    r.troughNos, r.troughRPM, r.rollerRPM, r.rollTime, r.rollerNo,
-    r.fermentationTimeMinutes, r.fermentationType,
-    r.dryerStart, r.dryerCircuit, r.dryerName, r.inletTemp, r.exhaustTemp, r.mouthTemp,
-    r.firingStart, r.firingEnd, r.notes, r.createdAt
-  ];
-  const csv = [header.map(csvEscape).join(','), row.map(csvEscape).join(',')].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const safeDate = (r.mainPluckingDate || 'no-date').replace(/[:\/\\ ]/g,'_');
-  a.download = `tea_processing_${safeDate}_latest.csv`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-});
-
-/* Word Export (detailed Option C) */
-$('#exportWordBtn').addEventListener('click', ()=>{
-  if(!lastSavedRecord){ alert('No saved record available. Save a record first.'); return; }
-  const r = lastSavedRecord;
-  const title = `Tea Processing Record - ${r.mainPluckingDate}`;
-  // build HTML document string
-  let doc = '<!doctype html><html><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title>';
-  doc += `<style>
-    body{font-family:Calibri, "Times New Roman", serif; padding:24px; color:#111}
-    h1{font-size:20pt; text-align:center; font-weight:700; margin-bottom:8px}
-    h2{font-size:14pt; margin-top:18px; margin-bottom:6px; font-weight:700}
-    table{width:100%; border-collapse:collapse; margin-top:6px}
-    th,td{border:1px solid #444; padding:8px; vertical-align:top}
-    th{background:#f3f3f3; font-weight:700}
-    .small{font-size:10pt; color:#333}
-    .section{margin-bottom:12px}
-  </style></head><body>`;
-  doc += `<h1>Frost Tea Processing Report</h1>`;
-  doc += `<div style="text-align:center;margin-bottom:12px"><span class="small">Generated: ${escapeHtml(new Date().toLocaleString())}</span></div>`;
-
-  // General info table
-  doc += `<h2>General Information</h2><table><tr><th>Main Plucking Date</th><td>${escapeHtml(r.mainPluckingDate)}</td></tr>`;
-  doc += `<tr><th>Green Leaf From</th><td>${escapeHtml(r.greenLeafFrom)}</td></tr>`;
-  doc += `<tr><th>Created At</th><td>${escapeHtml(r.createdAt)}</td></tr>`;
-  doc += `</table>`;
-
-  // Manufacture table
-  doc += `<h2>Manufacture & Measurements</h2>`;
-  doc += `<table>
-    <tr><th>Manufacture Start</th><td>${escapeHtml(r.manufactureStart)}</td></tr>
-    <tr><th>GL</th><td>${escapeHtml(r.gl)}</td></tr>
-    <tr><th>WL</th><td>${escapeHtml(r.wl)}</td></tr>
-    <tr><th>WL %</th><td>${escapeHtml(r.wlPercent)}</td></tr>
-    <tr><th>Made Tea (MT)</th><td>${escapeHtml(r.mt)}</td></tr>
-    <tr><th>Outturn % (OT)</th><td>${escapeHtml(r.ot)}</td></tr>
-  </table>`;
-
-  // Rolling & Fermentation
-  doc += `<h2>Rolling & Fermentation</h2>`;
-  doc += `<table>
-    <tr><th>Trough Nos</th><td>${escapeHtml(r.troughNos)}</td></tr>
-    <tr><th>Trough RPM</th><td>${escapeHtml(r.troughRPM)}</td></tr>
-    <tr><th>Roller RPM</th><td>${escapeHtml(r.rollerRPM)}</td></tr>
-    <tr><th>Roll Time (min)</th><td>${escapeHtml(r.rollTime)}</td></tr>
-    <tr><th>Roller No</th><td>${escapeHtml(r.rollerNo)}</td></tr>
-    <tr><th>Fermentation Time (minutes)</th><td>${escapeHtml(r.fermentationTimeMinutes)}</td></tr>
-    <tr><th>Fermentation Type</th><td>${escapeHtml(r.fermentationType)}</td></tr>
-  </table>`;
-
-  // Dryer & Firing
-  doc += `<h2>Dryer & Firing</h2>`;
-  doc += `<table>
-    <tr><th>Dryer Start</th><td>${escapeHtml(r.dryerStart)}</td></tr>
-    <tr><th>Dryer Circuit (min)</th><td>${escapeHtml(r.dryerCircuit)}</td></tr>
-    <tr><th>Dryer Name</th><td>${escapeHtml(r.dryerName)}</td></tr>
-    <tr><th>Inlet Temp (°C)</th><td>${escapeHtml(r.inletTemp)}</td></tr>
-    <tr><th>Exhaust Temp (°C)</th><td>${escapeHtml(r.exhaustTemp)}</td></tr>
-    <tr><th>Dryer Mouth Temp / Moisture</th><td>${escapeHtml(r.mouthTemp)}</td></tr>
-    <tr><th>Firing Start</th><td>${escapeHtml(r.firingStart)}</td></tr>
-    <tr><th>Firing End</th><td>${escapeHtml(r.firingEnd)}</td></tr>
-  </table>`;
-
-  // Withering entries as separate table
-  doc += `<h2>Withering Entries</h2>`;
-  if(r.withering && r.withering.length){
-    doc += `<table><tr><th>S.No</th><th>Start Date & Time</th><th>Start Trough</th><th>End Date & Time</th><th>Total Hours</th></tr>`;
-    r.withering.forEach((w, i)=>{
-      doc += `<tr>
-        <td>${i+1}</td>
-        <td>${escapeHtml(w.start)}</td>
-        <td>${escapeHtml(w.startTrough)}</td>
-        <td>${escapeHtml(w.end)}</td>
-        <td>${escapeHtml(w.hours)}</td>
-      </tr>`;
-    });
-    doc += `</table>`;
-  } else {
-    doc += `<p class="small">(No withering entries recorded)</p>`;
+      </div></div>`;
+      recordsList.innerHTML = html;
+      // store latest in window.latestRecord for export buttons
+      window.latestRecord = r;
+    } catch (err) {
+      console.error(err);
+      recordsList.innerHTML = '<em>Failed to load latest record: '+ escapeHtml(err.message || err) +'</em>';
+    }
   }
 
-  // Notes
-  doc += `<h2>Notes</h2><div style="border:1px solid #ccc;padding:10px;border-radius:6px">${escapeHtml(r.notes)}</div>`;
+  document.getElementById('fetchLatestBtn').addEventListener('click', fetchLatestRecord);
+  // Load latest on page open
+  fetchLatestRecord();
 
-  // End
-  doc += `</body></html>`;
+  // Export CSV / Word operate on window.latestRecord (from Firestore)
+  function csvEscape(v){
+    if (v == null) return '';
+    const s = v.toString();
+    if (/["\r\n,]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+    return s;
+  }
+  function escapeHtml(s){
+    if(s == null) return '';
+    return s.toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
 
-  // create blob and download as .doc (Word will open)
-  const blob = new Blob(['\ufeff' + doc], { type: 'application/vnd.ms-word;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const safeDate = (r.mainPluckingDate || 'no-date').replace(/[:\/\\ ]/g,'_');
-  a.download = `tea_processing_${safeDate}_latest.doc`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-});
+  document.getElementById('exportCSVBtn').addEventListener('click', ()=>{
+    const r = window.latestRecord;
+    if(!r){ alert('No latest record loaded. Click Fetch Latest Record first.'); return; }
+    const header = [
+      "MainPluckingDate","GreenLeafFrom","WitheringEntries",
+      "ManufactureStart","GL","WL","WL%","MadeTea_MT","Outturn_OT",
+      "TroughNos","TroughRPM","RollerRPM","RollTime","RollerNo",
+      "FermentationMinutes","FermentationType",
+      "DryerStart","DryerCircuit","DryerName","InletTemp","ExhaustTemp","MouthTemp",
+      "FiringStart","FiringEnd","Notes","CreatedAt"
+    ];
+    const withString = (r.withering && r.withering.length)
+      ? r.withering.map((w,i)=>`#${i+1}|S:${w.start||''}|T:${w.startTrough||''}|E:${w.end||''}|H:${w.hours||''}`).join(' ; ')
+      : '';
+    const row = [
+      r.mainPluckingDate, r.greenLeafFrom, withString,
+      r.manufactureStart, r.gl, r.wl, r.wlPercent, r.mt, r.ot,
+      r.troughNos, r.troughRPM, r.rollerRPM, r.rollTime, r.rollerNo,
+      r.fermentationTimeMinutes, r.fermentationType,
+      r.dryerStart, r.dryerCircuit, r.dryerName, r.inletTemp, r.exhaustTemp, r.mouthTemp,
+      r.firingStart, r.firingEnd, r.notes, (r.createdAt && r.createdAt.toDate) ? r.createdAt.toDate().toISOString() : (r.createdAt||'')
+    ];
+    const csv = [header.map(csvEscape).join(','), row.map(csvEscape).join(',')].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeDate = (r.mainPluckingDate || 'no-date').replace(/[:\/\\ ]/g,'_');
+    a.download = `tea_processing_${safeDate}_latest.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
 
-/* Helpers */
-function csvEscape(v){
-  if (v == null) return '';
-  const s = v.toString();
-  if (/["\r\n,]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
-  return s;
-}
-function escapeHtml(s){
-  if(s == null) return '';
-  return s.toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+  document.getElementById('exportWordBtn').addEventListener('click', ()=>{
+    const r = window.latestRecord;
+    if(!r){ alert('No latest record loaded. Click Fetch Latest Record first.'); return; }
+    const title = `Tea Processing Record - ${r.mainPluckingDate}`;
+    let doc = '<!doctype html><html><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title>';
+    doc += `<style>
+      body{font-family:Calibri, "Times New Roman", serif; padding:24px; color:#111}
+      h1{font-size:20pt; text-align:center; font-weight:700; margin-bottom:8px}
+      h2{font-size:14pt; margin-top:18px; margin-bottom:6px; font-weight:700}
+      table{width:100%; border-collapse:collapse; margin-top:6px}
+      th,td{border:1px solid #444; padding:8px; vertical-align:top}
+      th{background:#f3f3f3; font-weight:700}
+      .small{font-size:10pt; color:#333}
+      .section{margin-bottom:12px}
+    </style></head><body>`;
+    doc += `<h1>Frost Tea Processing Report</h1>`;
+    doc += `<div style="text-align:center;margin-bottom:12px"><span class="small">Generated: ${escapeHtml(new Date().toLocaleString())}</span></div>`;
+    doc += `<h2>General Information</h2><table><tr><th>Main Plucking Date</th><td>${escapeHtml(r.mainPluckingDate)}</td></tr>`;
+    doc += `<tr><th>Green Leaf From</th><td>${escapeHtml(r.greenLeafFrom)}</td></tr>`;
+    doc += `<tr><th>Created At</th><td>${escapeHtml((r.createdAt && r.createdAt.toDate) ? r.createdAt.toDate().toLocaleString() : (r.createdAt||''))}</td></tr>`;
+    doc += `</table>`;
+    doc += `<h2>Manufacture & Measurements</h2>`;
+    doc += `<table>
+      <tr><th>Manufacture Start</th><td>${escapeHtml(r.manufactureStart)}</td></tr>
+      <tr><th>GL</th><td>${escapeHtml(r.gl)}</td></tr>
+      <tr><th>WL</th><td>${escapeHtml(r.wl)}</td></tr>
+      <tr><th>WL %</th><td>${escapeHtml(r.wlPercent)}</td></tr>
+      <tr><th>Made Tea (MT)</th><td>${escapeHtml(r.mt)}</td></tr>
+      <tr><th>Outturn % (OT)</th><td>${escapeHtml(r.ot)}</td></tr>
+    </table>`;
+    doc += `<h2>Rolling & Fermentation</h2>`;
+    doc += `<table>
+      <tr><th>Trough Nos</th><td>${escapeHtml(r.troughNos)}</td></tr>
+      <tr><th>Trough RPM</th><td>${escapeHtml(r.troughRPM)}</td></tr>
+      <tr><th>Roller RPM</th><td>${escapeHtml(r.rollerRPM)}</td></tr>
+      <tr><th>Roll Time (min)</th><td>${escapeHtml(r.rollTime)}</td></tr>
+      <tr><th>Roller No</th><td>${escapeHtml(r.rollerNo)}</td></tr>
+      <tr><th>Fermentation Time (minutes)</th><td>${escapeHtml(r.fermentationTimeMinutes)}</td></tr>
+      <tr><th>Fermentation Type</th><td>${escapeHtml(r.fermentationType)}</td></tr>
+    </table>`;
+    doc += `<h2>Dryer & Firing</h2>`;
+    doc += `<table>
+      <tr><th>Dryer Start</th><td>${escapeHtml(r.dryerStart)}</td></tr>
+      <tr><th>Dryer Circuit (min)</th><td>${escapeHtml(r.dryerCircuit)}</td></tr>
+      <tr><th>Dryer Name</th><td>${escapeHtml(r.dryerName)}</td></tr>
+      <tr><th>Inlet Temp (°C)</th><td>${escapeHtml(r.inletTemp)}</td></tr>
+      <tr><th>Exhaust Temp (°C)</th><td>${escapeHtml(r.exhaustTemp)}</td></tr>
+      <tr><th>Dryer Mouth Temp / Moisture</th><td>${escapeHtml(r.mouthTemp)}</td></tr>
+      <tr><th>Firing Start</th><td>${escapeHtml(r.firingStart)}</td></tr>
+      <tr><th>Firing End</th><td>${escapeHtml(r.firingEnd)}</td></tr>
+    </table>`;
+    doc += `<h2>Withering Entries</h2>`;
+    if(r.withering && r.withering.length){
+      doc += `<table><tr><th>S.No</th><th>Start Date & Time</th><th>Start Trough</th><th>End Date & Time</th><th>Total Hours</th></tr>`;
+      r.withering.forEach((w, i)=>{
+        doc += `<tr>
+          <td>${i+1}</td>
+          <td>${escapeHtml(w.start)}</td>
+          <td>${escapeHtml(w.startTrough)}</td>
+          <td>${escapeHtml(w.end)}</td>
+          <td>${escapeHtml(w.hours)}</td>
+        </tr>`;
+      });
+      doc += `</table>`;
+    } else {
+      doc += `<p class="small">(No withering entries recorded)</p>`;
+    }
+    doc += `<h2>Notes</h2><div style="border:1px solid #ccc;padding:10px;border-radius:6px">${escapeHtml(r.notes)}</div>`;
+    doc += `</body></html>`;
+    const blob = new Blob(['\ufeff' + doc], { type: 'application/vnd.ms-word;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeDate = (r.mainPluckingDate || 'no-date').replace(/[:\/\\ ]/g,'_');
+    a.download = `tea_processing_${safeDate}_latest.doc`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
 
-/* initial render */
-renderRecords();
-
+  document.getElementById('clearUIBtn').addEventListener('click', ()=>{
+    if(!confirm('Clear form?')) return;
+    document.getElementById('entryForm').reset();
+    witheringContainer.innerHTML = '';
+    witheringIndex = 0;
+  });
 </script>
 </body>
 </html>
