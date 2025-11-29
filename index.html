@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Tea Processing — Local Save + Export (Option C)</title>
+<style>
+  :root{--accent:#286ef0;--muted:#6c757d}
+  body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width:1100px; margin:20px auto; padding:18px; color:#111}
+  h1{font-size:1.5rem;margin:0 0 8px}
+  h2{font-size:1.1rem;margin:14px 0 8px}
+  form{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;background:#fbfbfb;padding:14px;border-radius:8px;border:1px solid #e6e6e6}
+  label{display:block;margin-bottom:6px;font-weight:600;font-size:0.95rem}
+  input,select,textarea,button{width:100%;padding:8px;border-radius:6px;border:1px solid #cfcfcf;font-size:0.95rem;box-sizing:border-box}
+  textarea{min-height:80px}
+  .full{grid-column:1/-1}
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  button{cursor:pointer;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 12px}
+  button.secondary{background:var(--muted);}
+  .note{font-size:0.9rem;color:#444;margin-bottom:8px}
+  .withering-entry{border:1px dashed #999;padding:10px;border-radius:8px;background:#fff;margin-bottom:10px}
+  .deleteBtn{background:#d9534f;color:#fff;border:0;padding:6px 10px;border-radius:6px;cursor:pointer}
+  #witheringContainer{margin-top:8px}
+  #recordsList{margin-top:12px}
+  .record{background:#fff;border:1px solid #ddd;padding:10px;border-radius:8px;margin-bottom:10px}
+  pre{white-space:pre-wrap;word-break:break-word;background:#f6f8fa;padding:8px;border-radius:6px}
+  @media (max-width:820px){ form{grid-template-columns:1fr} }
+  .small{font-size:0.9rem;color:#333}
+  table.summary{width:100%;border-collapse:collapse;margin-top:8px}
+  table.summary th, table.summary td{padding:8px;border:1px solid #ccc;text-align:left}
+</style>
+</head>
+<body>
+
+<h1>Tea Processing — Local Save & Export (Detailed Word)</h1>
+<p class="note">This page stores records in your browser memory (no server). Click <strong>Save Record</strong> to keep a record in the list — the <strong>latest saved</strong> record is used by Export CSV / Export Word buttons.</p>
+
+<form id="entryForm" onsubmit="return false;">
+  <div>
+    <label>Main plucking date <span class="small">(required)</span></label>
+    <input type="date" id="pluckingDate" required>
+  </div>
+
+  <div>
+    <label>Green leaf from (location / Field No)</label>
+    <input type="text" id="greenLeafFrom" placeholder="Field / Location">
+  </div>
+
+  <!-- Withering entries -->
+  <div class="full">
+    <h2>Withering Entries (multiple)</h2>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <button id="addWitheringBtn" type="button">➕ Add Withering Entry</button>
+      <button id="clearWitheringBtn" type="button" class="secondary">Clear Withering Entries</button>
+      <div class="small" style="margin-left:8px">Note: <strong>Start trough</strong> only; End trough is not required.</div>
+    </div>
+    <div id="witheringContainer"></div>
+  </div>
+
+  <h2 class="full">Manufacture / Rolling / Fermentation / Dryer / Firing / Notes</h2>
+
+  <div>
+    <label>Manufacture start</label>
+    <input type="datetime-local" id="manufactureStart">
+  </div>
+
+  <div>
+    <label>Green leaf weight (GL)</label>
+    <input type="number" id="gl" step="any">
+  </div>
+
+  <div>
+    <label>Withered leaf weight (WL)</label>
+    <input type="number" id="wl" step="any">
+  </div>
+
+  <div>
+    <label>Withered leaf % (WL%)</label>
+    <input type="text" id="wlPercent">
+  </div>
+
+  <div>
+    <label>Made Tea (MT)</label>
+    <input type="text" id="mt" placeholder="Made tea">
+  </div>
+
+  <div>
+    <label>Outturn % (OT)</label>
+    <input type="text" id="ot" placeholder="Outturn">
+  </div>
+
+  <div>
+    <label>Trough nos</label>
+    <input type="text" id="troughNos" placeholder="e.g. 5,6">
+  </div>
+
+  <div>
+    <label>Trough RPM</label>
+    <select id="troughRPM"></select>
+  </div>
+
+  <div>
+    <label>Roller RPM</label>
+    <input type="number" id="rollerRPM">
+  </div>
+
+  <div>
+    <label>Roll time (minutes)</label>
+    <input type="number" id="rollTime">
+  </div>
+
+  <div>
+    <label>Roller no</label>
+    <input type="text" id="rollerNo">
+  </div>
+
+  <div>
+    <label>Fermentation time (HH:MM)</label>
+    <input type="time" id="fermentationTime">
+  </div>
+
+  <div>
+    <label>Fermentation type</label>
+    <input type="text" id="fermentationType" placeholder="FLOOR">
+  </div>
+
+  <div>
+    <label>Dryer start</label>
+    <input type="datetime-local" id="dryerStart">
+  </div>
+
+  <div>
+    <label>Dryer circuit time (minutes)</label>
+    <input type="number" id="dryerCircuit">
+  </div>
+
+  <div>
+    <label>Dryer name</label>
+    <select id="dryerName">
+      <option value="BRITANNIA">BRITANNIA</option>
+      <option value="DRYOTEA">DRYOTEA</option>
+    </select>
+  </div>
+
+  <div>
+    <label>Inlet temp (°C)</label>
+    <input type="number" id="inletTemp" step="any">
+  </div>
+
+  <div>
+    <label>Exhaust temp (°C)</label>
+    <input type="number" id="exhaustTemp" step="any">
+  </div>
+
+  <div>
+    <label>Dryer Mouth Temp / Moisture</label>
+    <input type="text" id="mouthTemp">
+  </div>
+
+  <div>
+    <label>Firing start (HH:MM)</label>
+    <input type="time" id="firingStart">
+  </div>
+
+  <div>
+    <label>Firing end (HH:MM)</label>
+    <input type="time" id="firingEnd">
+  </div>
+
+  <div class="full">
+    <label>General notes</label>
+    <textarea id="notes"></textarea>
+  </div>
+
+  <div class="controls full">
+    <button id="saveBtn" type="button">Save Record</button>
+    <button id="exportCSVBtn" type="button" class="secondary">Export CSV (latest)</button>
+    <button id="exportWordBtn" type="button" class="secondary">Export Word (latest)</button>
+    <button id="clearAllBtn" type="button" class="secondary">Clear All Saved Records</button>
+  </div>
+</form>
+
+<hr>
+
+<h2>Saved Records (local)</h2>
+<div id="recordsList"><em>No records yet. Save a record to view here.</em></div>
+
+<script>
+/* ------------------------
+   Utility & state
+   ------------------------ */
+const records = [];             // saved records array
+let lastSavedRecord = null;     // pointer to latest saved (used for export)
+
+const $ = sel => document.querySelector(sel);
+
+/* Populate troughRPM (100..1400 step 100) */
+const troughRPM = $('#troughRPM');
+for (let i = 100; i <= 1400; i += 100) troughRPM.add(new Option(i, i));
+
+/* Withering entries UI */
+const witheringContainer = $('#witheringContainer');
+let witheringIndex = 0;
+
+function createWitheringEntry(idx){
+  const d = document.createElement('div');
+  d.className = 'withering-entry';
+  d.dataset.idx = idx;
+  d.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <strong>Withering Entry ${idx}</strong>
+      <button class="deleteBtn" type="button">Delete</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+      <div>
+        <label>Start Date & Time</label>
+        <input type="datetime-local" class="w-start">
+      </div>
+      <div>
+        <label>Start Trough</label>
+        <select class="w-trough"></select>
+      </div>
+      <div>
+        <label>End Date & Time</label>
+        <input type="datetime-local" class="w-end">
+      </div>
+      <div>
+        <label>Total Hours (auto)</label>
+        <input type="text" class="w-total" readonly>
+      </div>
+    </div>
+  `;
+  // populate trough 1..24
+  const sel = d.querySelector('.w-trough');
+  for (let t = 1; t <= 24; t++) sel.add(new Option(t, t));
+  // delete handler
+  d.querySelector('.deleteBtn').addEventListener('click', ()=> d.remove());
+  // calc hours when start/end change
+  const startInput = d.querySelector('.w-start');
+  const endInput = d.querySelector('.w-end');
+  const totalInput = d.querySelector('.w-total');
+  function calcHours(){
+    const s = startInput.value, e = endInput.value;
+    if(!s || !e){ totalInput.value = ''; return; }
+    const diff = (new Date(e) - new Date(s)) / (1000*60*60);
+    totalInput.value = isFinite(diff) ? (diff >= 0 ? diff.toFixed(2) : 'Invalid') : '';
+  }
+  startInput.addEventListener('change', calcHours);
+  endInput.addEventListener('change', calcHours);
+  return d;
+}
+
+$('#addWitheringBtn').addEventListener('click', ()=>{
+  witheringIndex++;
+  witheringContainer.appendChild(createWitheringEntry(witheringIndex));
+});
+
+$('#clearWitheringBtn').addEventListener('click', ()=> {
+  if(!confirm('Clear all withering entries?')) return;
+  witheringContainer.innerHTML = '';
+  witheringIndex = 0;
+});
+
+/* Build a record object from form */
+function buildRecordObject(){
+  // fermentation HH:MM -> minutes
+  const ft = $('#fermentationTime').value;
+  let fermentationMinutes = '';
+  if(ft){
+    const pieces = ft.split(':').map(x=>Number(x||0));
+    fermentationMinutes = pieces[0]*60 + pieces[1];
+  }
+
+  // gather withering entries
+  const wdivs = witheringContainer.querySelectorAll('.withering-entry');
+  const withering = [];
+  wdivs.forEach(div=>{
+    withering.push({
+      start: div.querySelector('.w-start').value || '',
+      startTrough: div.querySelector('.w-trough').value || '',
+      end: div.querySelector('.w-end').value || '',
+      hours: div.querySelector('.w-total').value || ''
+    });
+  });
+
+  // assemble
+  const rec = {
+    mainPluckingDate: ($('#pluckingDate').value || '').toString(),
+    greenLeafFrom: ($('#greenLeafFrom').value || '').toString(),
+    withering,
+    manufactureStart: ($('#manufactureStart').value || '').toString(),
+    gl: ($('#gl').value || '').toString(),
+    wl: ($('#wl').value || '').toString(),
+    wlPercent: ($('#wlPercent').value || '').toString(),
+    mt: ($('#mt').value || '').toString(),
+    ot: ($('#ot').value || '').toString(),
+    troughNos: ($('#troughNos').value || '').toString(),
+    troughRPM: ($('#troughRPM').value || '').toString(),
+    rollerRPM: ($('#rollerRPM').value || '').toString(),
+    rollTime: ($('#rollTime').value || '').toString(),
+    rollerNo: ($('#rollerNo').value || '').toString(),
+    fermentationTimeMinutes: fermentationMinutes,
+    fermentationType: ($('#fermentationType').value || '').toString(),
+    dryerStart: ($('#dryerStart').value || '').toString(),
+    dryerCircuit: ($('#dryerCircuit').value || '').toString(),
+    dryerName: ($('#dryerName').value || '').toString(),
+    inletTemp: ($('#inletTemp').value || '').toString(),
+    exhaustTemp: ($('#exhaustTemp').value || '').toString(),
+    mouthTemp: ($('#mouthTemp').value || '').toString(),
+    firingStart: ($('#firingStart').value || '').toString(),
+    firingEnd: ($('#firingEnd').value || '').toString(),
+    notes: ($('#notes').value || '').toString(),
+    createdAt: new Date().toISOString()
+  };
+  return rec;
+}
+
+/* Save record locally (in-memory) */
+$('#saveBtn').addEventListener('click', ()=>{
+  try {
+    const rec = buildRecordObject();
+    if(!rec.mainPluckingDate){
+      alert('Please provide Main plucking date (required).'); return;
+    }
+    // push and set lastSavedRecord
+    records.push(rec);
+    lastSavedRecord = rec;
+    renderRecords();
+    // reset form
+    document.getElementById('entryForm').reset();
+    witheringContainer.innerHTML = '';
+    witheringIndex = 0;
+    alert('Record saved locally. You can now export the latest record.');
+  } catch(e){
+    console.error(e); alert('Save failed: '+e.message);
+  }
+});
+
+/* Render saved records list */
+function renderRecords(){
+  const container = $('#recordsList');
+  container.innerHTML = '';
+  if(records.length === 0){ container.innerHTML = '<em>No records yet. Save a record to view here.</em>'; return; }
+  records.slice().reverse().forEach((r, idx) => {
+    const i = records.length - idx; // show 1..N latest first
+    const div = document.createElement('div');
+    div.className = 'record';
+    const withCount = (r.withering && r.withering.length) ? r.withering.length : 0;
+    div.innerHTML = `
+      <strong>Record ${i} — ${escapeHtml(r.mainPluckingDate)}</strong>
+      <div style="margin-top:8px">
+        <table class="summary">
+          <tr><th>Main plucking date</th><td>${escapeHtml(r.mainPluckingDate)}</td></tr>
+          <tr><th>Green leaf from</th><td>${escapeHtml(r.greenLeafFrom)}</td></tr>
+          <tr><th>Withering entries</th><td>${withCount} entries</td></tr>
+          <tr><th>Manufacture start</th><td>${escapeHtml(r.manufactureStart)}</td></tr>
+          <tr><th>GL / WL / WL%</th><td>${escapeHtml(r.gl)} / ${escapeHtml(r.wl)} / ${escapeHtml(r.wlPercent)}</td></tr>
+          <tr><th>Made Tea (MT) / Outturn (OT)</th><td>${escapeHtml(r.mt)} / ${escapeHtml(r.ot)}</td></tr>
+          <tr><th>Notes</th><td>${escapeHtml(r.notes)}</td></tr>
+        </table>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+/* Clear all saved records */
+$('#clearAllBtn').addEventListener('click', ()=>{
+  if(!confirm('Clear all locally saved records?')) return;
+  records.length = 0; lastSavedRecord = null;
+  renderRecords();
+});
+
+/* CSV Export (latest saved record) */
+$('#exportCSVBtn').addEventListener('click', ()=>{
+  if(!lastSavedRecord){ alert('No saved record available. Save a record first.'); return; }
+  const r = lastSavedRecord;
+  // header
+  const header = [
+    "MainPluckingDate","GreenLeafFrom","WitheringEntries",
+    "ManufactureStart","GL","WL","WL%","MadeTea_MT","Outturn_OT",
+    "TroughNos","TroughRPM","RollerRPM","RollTime","RollerNo",
+    "FermentationMinutes","FermentationType",
+    "DryerStart","DryerCircuit","DryerName","InletTemp","ExhaustTemp","MouthTemp",
+    "FiringStart","FiringEnd","Notes","CreatedAt"
+  ];
+  const withString = (r.withering && r.withering.length) 
+    ? r.withering.map((w,i)=>`#${i+1}|S:${w.start||''}|T:${w.startTrough||''}|E:${w.end||''}|H:${w.hours||''}`).join(' ; ')
+    : '';
+  const row = [
+    r.mainPluckingDate, r.greenLeafFrom, withString,
+    r.manufactureStart, r.gl, r.wl, r.wlPercent, r.mt, r.ot,
+    r.troughNos, r.troughRPM, r.rollerRPM, r.rollTime, r.rollerNo,
+    r.fermentationTimeMinutes, r.fermentationType,
+    r.dryerStart, r.dryerCircuit, r.dryerName, r.inletTemp, r.exhaustTemp, r.mouthTemp,
+    r.firingStart, r.firingEnd, r.notes, r.createdAt
+  ];
+  const csv = [header.map(csvEscape).join(','), row.map(csvEscape).join(',')].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safeDate = (r.mainPluckingDate || 'no-date').replace(/[:\/\\ ]/g,'_');
+  a.download = `tea_processing_${safeDate}_latest.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+/* Word Export (detailed Option C) */
+$('#exportWordBtn').addEventListener('click', ()=>{
+  if(!lastSavedRecord){ alert('No saved record available. Save a record first.'); return; }
+  const r = lastSavedRecord;
+  const title = `Tea Processing Record - ${r.mainPluckingDate}`;
+  // build HTML document string
+  let doc = '<!doctype html><html><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title>';
+  doc += `<style>
+    body{font-family:Calibri, "Times New Roman", serif; padding:24px; color:#111}
+    h1{font-size:20pt; text-align:center; font-weight:700; margin-bottom:8px}
+    h2{font-size:14pt; margin-top:18px; margin-bottom:6px; font-weight:700}
+    table{width:100%; border-collapse:collapse; margin-top:6px}
+    th,td{border:1px solid #444; padding:8px; vertical-align:top}
+    th{background:#f3f3f3; font-weight:700}
+    .small{font-size:10pt; color:#333}
+    .section{margin-bottom:12px}
+  </style></head><body>`;
+  doc += `<h1>Frost Tea Processing Report</h1>`;
+  doc += `<div style="text-align:center;margin-bottom:12px"><span class="small">Generated: ${escapeHtml(new Date().toLocaleString())}</span></div>`;
+
+  // General info table
+  doc += `<h2>General Information</h2><table><tr><th>Main Plucking Date</th><td>${escapeHtml(r.mainPluckingDate)}</td></tr>`;
+  doc += `<tr><th>Green Leaf From</th><td>${escapeHtml(r.greenLeafFrom)}</td></tr>`;
+  doc += `<tr><th>Created At</th><td>${escapeHtml(r.createdAt)}</td></tr>`;
+  doc += `</table>`;
+
+  // Manufacture table
+  doc += `<h2>Manufacture & Measurements</h2>`;
+  doc += `<table>
+    <tr><th>Manufacture Start</th><td>${escapeHtml(r.manufactureStart)}</td></tr>
+    <tr><th>GL</th><td>${escapeHtml(r.gl)}</td></tr>
+    <tr><th>WL</th><td>${escapeHtml(r.wl)}</td></tr>
+    <tr><th>WL %</th><td>${escapeHtml(r.wlPercent)}</td></tr>
+    <tr><th>Made Tea (MT)</th><td>${escapeHtml(r.mt)}</td></tr>
+    <tr><th>Outturn % (OT)</th><td>${escapeHtml(r.ot)}</td></tr>
+  </table>`;
+
+  // Rolling & Fermentation
+  doc += `<h2>Rolling & Fermentation</h2>`;
+  doc += `<table>
+    <tr><th>Trough Nos</th><td>${escapeHtml(r.troughNos)}</td></tr>
+    <tr><th>Trough RPM</th><td>${escapeHtml(r.troughRPM)}</td></tr>
+    <tr><th>Roller RPM</th><td>${escapeHtml(r.rollerRPM)}</td></tr>
+    <tr><th>Roll Time (min)</th><td>${escapeHtml(r.rollTime)}</td></tr>
+    <tr><th>Roller No</th><td>${escapeHtml(r.rollerNo)}</td></tr>
+    <tr><th>Fermentation Time (minutes)</th><td>${escapeHtml(r.fermentationTimeMinutes)}</td></tr>
+    <tr><th>Fermentation Type</th><td>${escapeHtml(r.fermentationType)}</td></tr>
+  </table>`;
+
+  // Dryer & Firing
+  doc += `<h2>Dryer & Firing</h2>`;
+  doc += `<table>
+    <tr><th>Dryer Start</th><td>${escapeHtml(r.dryerStart)}</td></tr>
+    <tr><th>Dryer Circuit (min)</th><td>${escapeHtml(r.dryerCircuit)}</td></tr>
+    <tr><th>Dryer Name</th><td>${escapeHtml(r.dryerName)}</td></tr>
+    <tr><th>Inlet Temp (°C)</th><td>${escapeHtml(r.inletTemp)}</td></tr>
+    <tr><th>Exhaust Temp (°C)</th><td>${escapeHtml(r.exhaustTemp)}</td></tr>
+    <tr><th>Dryer Mouth Temp / Moisture</th><td>${escapeHtml(r.mouthTemp)}</td></tr>
+    <tr><th>Firing Start</th><td>${escapeHtml(r.firingStart)}</td></tr>
+    <tr><th>Firing End</th><td>${escapeHtml(r.firingEnd)}</td></tr>
+  </table>`;
+
+  // Withering entries as separate table
+  doc += `<h2>Withering Entries</h2>`;
+  if(r.withering && r.withering.length){
+    doc += `<table><tr><th>S.No</th><th>Start Date & Time</th><th>Start Trough</th><th>End Date & Time</th><th>Total Hours</th></tr>`;
+    r.withering.forEach((w, i)=>{
+      doc += `<tr>
+        <td>${i+1}</td>
+        <td>${escapeHtml(w.start)}</td>
+        <td>${escapeHtml(w.startTrough)}</td>
+        <td>${escapeHtml(w.end)}</td>
+        <td>${escapeHtml(w.hours)}</td>
+      </tr>`;
+    });
+    doc += `</table>`;
+  } else {
+    doc += `<p class="small">(No withering entries recorded)</p>`;
+  }
+
+  // Notes
+  doc += `<h2>Notes</h2><div style="border:1px solid #ccc;padding:10px;border-radius:6px">${escapeHtml(r.notes)}</div>`;
+
+  // End
+  doc += `</body></html>`;
+
+  // create blob and download as .doc (Word will open)
+  const blob = new Blob(['\ufeff' + doc], { type: 'application/vnd.ms-word;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safeDate = (r.mainPluckingDate || 'no-date').replace(/[:\/\\ ]/g,'_');
+  a.download = `tea_processing_${safeDate}_latest.doc`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+/* Helpers */
+function csvEscape(v){
+  if (v == null) return '';
+  const s = v.toString();
+  if (/["\r\n,]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+  return s;
+}
+function escapeHtml(s){
+  if(s == null) return '';
+  return s.toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* initial render */
+renderRecords();
+
+</script>
+</body>
+</html>
